@@ -5,6 +5,7 @@ import urllib3
 import re
 import xml.dom.minidom
 
+
 # Disable warnings, as XML Mgmt often has a self-signed certificate
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -60,12 +61,12 @@ def build_xml(domain, data):
                               </dp:request>
                           </soapenv:Body>
                       </soapenv:Envelope>'''
-    xmlRequestStr = xml_template.format(domain, file_content).replace('\n', '')
-    xmlRequest = re.sub(r'> +<', '><', xmlRequestStr)
+    xml_request_rtr = xml_template.format(domain, file_content).replace('\n', '')
+    xml_request = re.sub(r'> +<', '><', xml_request_rtr)
     if VERBOSE:
         print('Generated XML:\n')
-        print_pretty_xml(xmlRequest)
-    return xmlRequest
+        print_pretty_xml(xml_request)
+    return xml_request
 
 
 def process_file(filename, domain, url, user, password):
