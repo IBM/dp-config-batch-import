@@ -2,67 +2,102 @@ import argparse
 import base64
 import requests
 import urllib3
-
+import re
+import xml.dom.minidom
 
 # Disable warnings, as XML Mgmt often has a self-signed certificate
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Global for verbose logging, set via --verbose argument
+VERBOSE = False
+
+
+def get_user(args):
+    if args.user is not None:
+        user = args.user[0]
+    else:
+        user = 'admin'
+    return user
+
+
+def get_password(args):
+    if args.password is not None:
+        password = args.password[0]
+    else:
+        password = 'admin'
+    return password
+
+
+def get_port(args):
+    if args.port is not None:
+        port = str(args.port[0])
+    else:
+        port = '5550'
+    return port
+
+
+def build_url(hostname, port):
+    url = 'https://' + hostname + ':' + port + '/'
+    if VERBOSE:
+        print('URL:', url)
+    return url
+
+
+def print_pretty_xml(xml_str):
+    dom = xml.dom.minidom.parseString(xml_str)
+    dom_pretty = dom.toprettyxml()
+    print(dom_pretty)
+
+
+def build_xml(domain, data):
+    file_content = base64.b64encode(data).decode('ascii')
+    xml_template = '''<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+                        <soapenv:Body>
+                              <dp:request xmlns:dp="http://www.datapower.com/schemas/management" domain="{}">
+                                  <dp:do-import source-type="ZIP" dry-run="false" overwrite-objects="false" overwrite-files="false">
+                                      <dp:input-file>{}</dp:input-file>
+                                  </dp:do-import>
+                              </dp:request>
+                          </soapenv:Body>
+                      </soapenv:Envelope>'''
+    xmlRequestStr = xml_template.format(domain, file_content).replace('\n', '')
+    xmlRequest = re.sub(r'> +<', '><', xmlRequestStr)
+    if VERBOSE:
+        print('Generated XML:\n')
+        print_pretty_xml(xmlRequest)
+    return xmlRequest
+
+
+def process_file(filename, domain, url, user, password):
+    print('Preparing to import: ' + filename)
+    with open(filename, 'rb') as lines:
+        data = lines.read()
+    xml = build_xml(domain, data)
+    if VERBOSE:
+        print('Sending POST request')
+    r = requests.post(url, auth=(user, password), data=xml, verify=False)
+    if r.status_code == 200:
+        print('File uploaded successfully')
+        if VERBOSE:
+            print(r.text)
+    else:
+        print('File upload failed:')
+        print(r.text)
+        exit()
+
 
 def run_with_args(args):
-	datapower = args.datapower[0]
-	domain = args.domain[0]
-	if args.user is not None:
-		user = args.user[0]
-	else:
-		user = 'admin'
-	if args.password is not None:
-		password = args.password[0]
-	else:
-		password = 'admin'
-	if args.port is not None:
-		port = str(args.port[0])
-	else:
-		port = '5550'
-	url = 'https://' + datapower + ':' + port + '/'
-	if args.verbose:
-		print('User:', user)
-		print('Password:', password)
-		print('URL:', url)
-
-	soap_env_head = '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">'
-	soap_env_tail = '</soapenv:Envelope>'
-	soap_body_head = '<soapenv:Body>'
-	soap_body_tail = '</soapenv:Body>'
-	dp_req_head = '<dp:request xmlns:dp="http://www.datapower.com/schemas/management" domain="' + domain + '">'
-	dp_req_tail = '</dp:request>'
-	dp_do_import_head = '<dp:do-import source-type="ZIP" dry-run="false" overwrite-objects="false" overwrite-files="false">'
-	dp_do_import_tail = '</dp:do-import>'
-	dp_input_file_head = '<dp:input-file>'
-	dp_input_file_tail = '</dp:input-file>'
-
-	def build_xml(data):
-		print('Building XML')
-		return soap_env_head + soap_body_head + dp_req_head + \
-			dp_do_import_head + dp_input_file_head + \
-			base64.b64encode(data).decode('ascii') + \
-			dp_input_file_tail + dp_do_import_tail + \
-				dp_req_tail + soap_body_tail + soap_env_tail
-
-	print('Domain: ' + domain)
-	for filename in args.export:
-		print('Preparing to import: ' + filename)
-		with open(filename, 'rb') as lines:
-			data = lines.read()
-		xml = build_xml(data)
-		if args.verbose:
-			print('XML:', xml)
-		print('Sending POST')
-		r = requests.post(url, auth=(user, password), data=xml, verify=False)
-		if r.status_code == 200:
-			print('File uploaded successfully')
-			if args.verbose:
-				print(r.text)
-		else:
-			print('File upload failed:')
-			print(r.text)
-			exit()
+    if args.verbose:
+        global VERBOSE
+        VERBOSE = True
+        print(args)
+    domain = args.domain[0]
+    hostname = args.hostname[0]
+    port = get_port(args)
+    url = build_url(hostname, port)
+    user = get_user(args)
+    password = get_password(args)
+    if VERBOSE:
+        print('Target application domain: ' + domain)
+    for filename in args.export:
+        process_file(filename, domain, url, user, password)
